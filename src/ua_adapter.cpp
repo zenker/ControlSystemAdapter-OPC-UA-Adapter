@@ -20,7 +20,7 @@
  */
 
 extern "C" {
-#include "csa_namespaceinit_generated.h"
+#include "csa_namespace.h"
 #include "unistd.h"
 
 #include <dirent.h>
@@ -28,10 +28,10 @@ extern "C" {
 #include <stdlib.h>
 }
 
+#include "csa_additionalvariable.h"
 #include "csa_config.h"
+#include "csa_processvariable.h"
 #include "ua_adapter.h"
-#include "ua_additionalvariable.h"
-#include "ua_processvariable.h"
 #include "ua_proxies.h"
 #include "xml_file_handler.h"
 
@@ -73,6 +73,33 @@ static string cleanUri(string s) {
   return s;
 }
 
+static UA_ByteString loadFile(const char* const path) {
+  UA_ByteString fileContents = UA_STRING_NULL;
+
+  /* Open the file */
+  FILE* fp = fopen(path, "rb");
+  if(!fp) {
+    errno = 0; /* We read errno also from the tcp layer... */
+    return fileContents;
+  }
+
+  /* Get the file length, allocate the data and read */
+  fseek(fp, 0, SEEK_END);
+  fileContents.length = (size_t)ftell(fp);
+  fileContents.data = (UA_Byte*)UA_malloc(fileContents.length * sizeof(UA_Byte));
+  if(fileContents.data) {
+    fseek(fp, 0, SEEK_SET);
+    size_t read = fread(fileContents.data, sizeof(UA_Byte), fileContents.length, fp);
+    if(read != fileContents.length) UA_ByteString_clear(&fileContents);
+  }
+  else {
+    fileContents.length = 0;
+  }
+  fclose(fp);
+
+  return fileContents;
+}
+
 void ua_uaadapter::fillBuildInfo(UA_ServerConfig* config) {
   /*get hostname */
   char hostname[HOST_NAME_MAX];
@@ -103,11 +130,111 @@ void ua_uaadapter::fillBuildInfo(UA_ServerConfig* config) {
       UA_LOCALIZEDTEXT_ALLOC((char*)"en_US", (char*)this->serverConfig.applicationName.c_str());
 }
 
-
 void ua_uaadapter::constructServer() {
   auto config = (UA_ServerConfig*)UA_calloc(1, sizeof(UA_ServerConfig));
-  UA_ServerConfig_setMinimal(config, this->serverConfig.opcuaPort, NULL);
+  if(!this->serverConfig.enableSecurity) {
+    UA_ServerConfig_setMinimal(config, this->serverConfig.opcuaPort, NULL);
+  }
 
+  if(this->serverConfig.enableSecurity) {
+    UA_ByteString certificate = UA_BYTESTRING_NULL;
+    UA_ByteString privateKey = UA_BYTESTRING_NULL;
+    size_t trustListSize = 0;
+    UA_ByteString* trustList = NULL;
+    size_t issuerListSize = 0;
+    UA_ByteString* issuerList = NULL;
+    size_t blockListSize = 0;
+    UA_ByteString* blockList = NULL;
+
+    /* Load certificate and private key */
+    certificate = loadFile(this->serverConfig.certPath.c_str());
+    privateKey = loadFile(this->serverConfig.keyPath.c_str());
+    if(UA_ByteString_equal(&certificate, &UA_BYTESTRING_NULL) ||
+        UA_ByteString_equal(&privateKey, &UA_BYTESTRING_NULL)) {
+      cout << "Invalid security configuration. Can't load private key or certificate." << endl;
+    }
+
+    /* Load trust list */
+    struct dirent* entry = nullptr;
+    DIR* dp = nullptr;
+    dp = opendir(this->serverConfig.allowListFolder.c_str());
+    if(dp != nullptr) {
+      while((entry = readdir(dp))) {
+        if(!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        trustListSize++;
+        trustList = (UA_ByteString*)UA_realloc(trustList, sizeof(UA_ByteString) * trustListSize);
+        char sbuf[1024];
+        sprintf(sbuf, "%s/%s", this->serverConfig.allowListFolder.c_str(), entry->d_name);
+        printf("Trust List entry:  %s\n", entry->d_name);
+        trustList[trustListSize - 1] = loadFile(sbuf);
+      }
+    }
+    closedir(dp);
+
+    /* Load Issuer list */
+    dp = nullptr;
+    dp = opendir(this->serverConfig.issuerListFolder.c_str());
+    if(dp != nullptr) {
+      while((entry = readdir(dp))) {
+        if(!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        issuerListSize++;
+        issuerList = (UA_ByteString*)UA_realloc(issuerList, sizeof(UA_ByteString) * issuerListSize);
+        char sbuf[1024];
+        sprintf(sbuf, "%s/%s", this->serverConfig.issuerListFolder.c_str(), entry->d_name);
+        printf("Issuer List entry:  %s\n", entry->d_name);
+        issuerList[issuerListSize - 1] = loadFile(sbuf);
+      }
+    }
+    closedir(dp);
+
+    /* Load Block list */
+    dp = nullptr;
+    dp = opendir(this->serverConfig.blockListFolder.c_str());
+    if(dp != nullptr) {
+      while((entry = readdir(dp))) {
+        if(!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        blockListSize++;
+        blockList = (UA_ByteString*)UA_realloc(blockList, sizeof(UA_ByteString) * blockListSize);
+        char sbuf[1024];
+        sprintf(sbuf, "%s/%s", this->serverConfig.blockListFolder.c_str(), entry->d_name);
+        printf("Trust List entry:  %s\n", entry->d_name);
+        blockList[blockListSize - 1] = loadFile(sbuf);
+      }
+    }
+    closedir(dp);
+
+    // setup encrypted endpoints
+    UA_StatusCode retval = UA_ServerConfig_setDefaultWithSecurityPolicies(config, this->serverConfig.opcuaPort,
+        &certificate, &privateKey, trustList, trustListSize, issuerList, issuerListSize, blockList, blockListSize);
+
+    if(retval != UA_STATUSCODE_GOOD) {
+      throw std::runtime_error("Failed setting up server endpoints.");
+    }
+
+    if(this->serverConfig.unsecure) {
+      for(size_t i = 0; i < config->endpointsSize; i++) {
+        UA_EndpointDescription* ep = &config->endpoints[i];
+        if(ep->securityMode != UA_MESSAGESECURITYMODE_NONE) continue;
+
+        UA_EndpointDescription_clear(ep);
+        // Move the last to this position
+        if(i + 1 < config->endpointsSize) {
+          config->endpoints[i] = config->endpoints[config->endpointsSize - 1];
+          i--;
+        }
+        config->endpointsSize--;
+      }
+      // Delete the entire array if the last Endpoint was removed
+      if(config->endpointsSize == 0) {
+        UA_free(config->endpoints);
+        config->endpoints = NULL;
+      }
+    }
+
+    UA_ByteString_clear(&certificate);
+    UA_ByteString_clear(&privateKey);
+    for(size_t i = 0; i < trustListSize; i++) UA_ByteString_clear(&trustList[i]);
+  }
   fillBuildInfo(config);
   for(size_t i = 0; i < config->endpointsSize; ++i) {
     UA_ApplicationDescription_clear(&config->endpoints[i].server);
@@ -126,7 +253,7 @@ void ua_uaadapter::constructServer() {
       usernamePasswordLogins);
 
   this->baseNodeId = UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER);
-  csa_namespaceinit_generated(this->mappedServer);
+  csa_namespace_init(this->mappedServer);
 
   UA_free(config);
   UA_String_clear(&usernamePasswordLogins->password);
@@ -239,6 +366,62 @@ void ua_uaadapter::readConfig() {
   else {
     cout << "No <server>-Tag in config file. Use default port 16664 and application name configuration." << endl;
     this->serverConfig.rootFolder = this->serverConfig.applicationName;
+  }
+  result = this->fileHandler->getNodeSet(xpath + "//security");
+  if(result) {
+    xmlNodeSetPtr nodeset = result->nodesetval;
+    if(nodeset->nodeNr > 1) {
+      throw std::runtime_error("To many <security>-Tags in config file");
+    }
+    this->serverConfig.enableSecurity = true;
+    string unsecure = this->fileHandler->getAttributeValueFromNode(nodeset->nodeTab[0], "unsecure");
+    if(!unsecure.empty()) {
+      this->serverConfig.unsecure = true;
+    }
+    else {
+      this->serverConfig.unsecure = false;
+      cout << "No 'unsecure'-Attribute in config file is set. Disable unsecure endpoints" << endl;
+    }
+    string certPath = this->fileHandler->getAttributeValueFromNode(nodeset->nodeTab[0], "certificate");
+    if(!certPath.empty()) {
+      this->serverConfig.certPath = certPath;
+    }
+    else {
+      cout << "Invalid security configuration. No 'certificate'-Attribute in config file is set." << endl;
+    }
+    string keyPath = this->fileHandler->getAttributeValueFromNode(nodeset->nodeTab[0], "privatekey");
+    if(!keyPath.empty()) {
+      this->serverConfig.keyPath = keyPath;
+    }
+    else {
+      cout << "Invalid security configuration. No 'privatekey'-Attribute in config file is set." << endl;
+    }
+    string allowListFolder = this->fileHandler->getAttributeValueFromNode(nodeset->nodeTab[0], "trustlist");
+    if(!allowListFolder.empty()) {
+      this->serverConfig.allowListFolder = allowListFolder;
+    }
+    else {
+      cout << "Invalid security configuration. No 'trustlist'-Attribute in config file is set." << endl;
+    }
+    string blockListFolder = this->fileHandler->getAttributeValueFromNode(nodeset->nodeTab[0], "blocklist");
+    if(!blockListFolder.empty()) {
+      this->serverConfig.blockListFolder = blockListFolder;
+    }
+    else {
+      cout << "No 'blockListFolder'-Attribute in config file is set." << endl;
+    }
+    string issuerListFolder = this->fileHandler->getAttributeValueFromNode(nodeset->nodeTab[0], "issuerlist");
+    if(!issuerListFolder.empty()) {
+      this->serverConfig.issuerListFolder = issuerListFolder;
+    }
+    else {
+      cout << "No 'issuerListFolder'-Attribute in config file is set." << endl;
+    }
+    xmlXPathFreeObject(result);
+  }
+  else {
+    cout << "No <security>-Tag in config file. Use default configuration with unsecure endpoint." << endl;
+    this->serverConfig.enableSecurity = false;
   }
   result = this->fileHandler->getNodeSet(xpath + "//process_variable_hierarchy");
   if(result) {

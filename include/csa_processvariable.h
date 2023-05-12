@@ -42,7 +42,6 @@ typedef enum {
   UA_PV_STRING = 10,
   UA_PV_INT64 = 11,
   UA_PV_UINT64 = 12,
-  UA_PV_BOOL = 13
 } UA_Processvariable_Type;
 
 /** @class ua_processvariable
@@ -64,7 +63,7 @@ class ua_processvariable : ua_mapped_class {
   bool array;
 
   boost::shared_ptr<ControlSystemPVManager> csManager;
-  UA_StatusCode addPVChildNodes(UA_NodeId pvNodeId, string baseNodePath);
+  UA_StatusCode addPVChildNodes(UA_NodeId pvNodeId, string baseNodePath, UA_DataSource_Map & map);
 
   /** @brief  This methode mapped all own nodes into the opcua server
   *
@@ -150,11 +149,6 @@ class ua_processvariable : ua_mapped_class {
                                                                       void* sessionContext, const UA_NodeId* nodeId, void* nodeContext, UA_Boolean includeSourceTimeStamp,
                                                                       const UA_NumericRange* range, UA_DataValue* value);
 
-  /** @brief  Get vadility  of processvariable*/
-  static UA_StatusCode ua_readproxy_ua_processvariable_getValidity(UA_Server* server, const UA_NodeId* sessionId,
-                                                                   void* sessionContext, const UA_NodeId* nodeId, void* nodeContext, UA_Boolean includeSourceTimeStamp,
-                                                                   const UA_NumericRange* range, UA_DataValue* value);
-
   /** @brief  Get description unit of processvariable
   *
   * @return <String> of description
@@ -198,7 +192,6 @@ class ua_processvariable : ua_mapped_class {
 
   UA_StatusCode getValue_string(UA_Variant* v);
 
-//  UA_StatusCode getValue_bool(UA_Variant* v);
 
   static UA_StatusCode ua_writeproxy_ua_processvariable_setValue(UA_Server* server, const UA_NodeId* sessionId,
                                                                  void* sessionContext, const UA_NodeId* nodeId, void* nodeContext, const UA_NumericRange* range,
@@ -226,7 +219,6 @@ class ua_processvariable : ua_mapped_class {
 
   UA_StatusCode setValue_string(const UA_Variant* data);
 
-//  UA_StatusCode setValue_bool(const UA_Variant* data);
 };
 
 #endif // UA_PROCESSVARIABLE_H

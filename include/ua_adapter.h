@@ -23,9 +23,9 @@
 #define MTCA_UAADAPTER_H
 
 #include "ChimeraTK/ControlSystemAdapter/ControlSystemPVManager.h"
-#include "ua_additionalvariable.h"
+#include "csa_additionalvariable.h"
+#include "csa_processvariable.h"
 #include "ua_mapped_class.h"
-#include "ua_processvariable.h"
 #include "xml_file_handler.h"
 #include <open62541/config.h>
 #include <open62541/plugin/accesscontrol.h>
@@ -74,6 +74,13 @@ struct ServerConfig {
   string username = "";
   string applicationName = "OPCUA-Adapter";
   uint16_t opcuaPort = 16664;
+  bool enableSecurity = false;
+  bool unsecure = false;
+  string certPath = "";
+  string keyPath = "";
+  string allowListFolder = "";
+  string blockListFolder = "";
+  string issuerListFolder = "";
 };
 
 /** @class ua_uaadapter

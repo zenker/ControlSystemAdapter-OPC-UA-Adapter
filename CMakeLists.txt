@@ -133,11 +133,11 @@ set(objectSources  ${CMAKE_SOURCE_DIR}/src/ua_mapped_class.cpp
         ${CMAKE_SOURCE_DIR}/src/ua_proxies.cpp
         ${CMAKE_SOURCE_DIR}/src/csa_opcua_adapter.cpp
         ${CMAKE_SOURCE_DIR}/src/xml_file_handler.cpp
-        ${CMAKE_SOURCE_DIR}/src/ua_processvariable.cpp
-        ${CMAKE_SOURCE_DIR}/src/ua_additionalvariable.cpp
+        ${CMAKE_SOURCE_DIR}/src/csa_processvariable.cpp
+        ${CMAKE_SOURCE_DIR}/src/csa_additionalvariable.cpp
         ${CMAKE_SOURCE_DIR}/src/ua_adapter.cpp
         ${CMAKE_SOURCE_DIR}/src/csa_opcua_application.cpp
-
+	${CMAKE_SOURCE_DIR}/src/csa_namespace.c
         #${CMAKE_SOURCE_DIR}/src/open62541.c
         # Example HelperClass
         #${CMAKE_SOURCE_DIR}/examples/runtime_value_generator.cpp
@@ -160,15 +160,6 @@ option(ENABLE_LINTING         "Enables running the cppcheck static analyzer prio
 option(ENABLE_UNIT_TESTS 			"Compile and run unit tests." ON)
 option(ENABLE_DOCUMENTATION		"Generate Doxygen documentation" OFF)
 option(ENABLE_RUNTIME_ANALYSIS "Build Runtime analyses" OFF)
-
-if(ENABLE_CREATEMODEL)
-    set(MODEL_XML_FILE "adapterim.xml" CACHE STRING "Namespace definition XML file for MTCA Model")
-
-    list(APPEND objectSources ${PROJECT_BINARY_DIR}/src_generated/csa_namespaceinit_generated.c)
-else()
-    include_directories(${CMAKE_SOURCE_DIR}/include/model_prebuilt/)
-    list(APPEND objectSources ${CMAKE_SOURCE_DIR}/include/model_prebuilt/csa_namespaceinit_generated.c)
-endif()
 
 if(ENABLE_COVERAGE)
     set(CMAKE_BUILD_TYPE DEBUG)
